@@ -16,7 +16,7 @@ import {
   X
 } from 'lucide-react';
 
-// --- Utilitarios para cargar librerías externas para exportar ---
+// --- Utilitarios ---
 const loadScript = (src) => {
   return new Promise((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) {
@@ -34,7 +34,7 @@ const loadScript = (src) => {
 // --- Definición de Plantillas ---
 const TEMPLATES = {
   TITLE: { 
-    id: 'title', 
+    id: 'TITLE', 
     name: 'Título Principal', 
     icon: <Type size={20} />,
     layout: 'flex flex-col justify-center items-center text-center h-full p-12',
@@ -44,7 +44,7 @@ const TEMPLATES = {
     ]
   },
   BULLETS: { 
-    id: 'bullets', 
+    id: 'BULLETS', 
     name: 'Título y Texto', 
     icon: <Layout size={20} />,
     layout: 'flex flex-col h-full p-12 pt-16',
@@ -54,7 +54,7 @@ const TEMPLATES = {
     ]
   },
   TWO_COL: { 
-    id: 'two_col', 
+    id: 'TWO_COL', 
     name: 'Dos Columnas', 
     icon: <Columns size={20} />,
     layout: 'grid grid-cols-2 gap-8 h-full p-12 pt-16',
@@ -64,7 +64,7 @@ const TEMPLATES = {
     ]
   },
   QUOTE: { 
-    id: 'quote', 
+    id: 'QUOTE', 
     name: 'Cita Destacada', 
     icon: <Quote size={20} />,
     layout: 'flex flex-col justify-center items-center h-full p-16',
@@ -74,7 +74,7 @@ const TEMPLATES = {
     ]
   },
   BIG_NUMBER: { 
-    id: 'big_number', 
+    id: 'BIG_NUMBER', 
     name: 'Dato Grande', 
     icon: <Hash size={20} />,
     layout: 'flex flex-col justify-center items-center h-full p-12',
@@ -92,8 +92,72 @@ const THEMES = [
   { id: 'blue', bg: 'bg-blue-50', text: 'text-blue-900', accent: 'bg-blue-600' },
 ];
 
+// --- COMPONENTE RENDERIZADOR (EXTRAÍDO FUERA PARA EVITAR PÉRDIDA DE FOCO) ---
+const SlideRenderer = ({ slide, theme, readOnly = false, scale = 1, onUpdate, slideIndex }) => {
+  const tmpl = TEMPLATES[slide.templateId];
+  
+  if (!tmpl) {
+      return <div className="p-12 text-red-500">Error: Plantilla no encontrada ({slide.templateId})</div>;
+  }
+  
+  const style = {
+    transform: `scale(${scale})`,
+    transformOrigin: 'top left',
+    width: '1280px',
+    height: '720px',
+  };
+
+  return (
+    <div 
+      className={`${theme.bg} ${theme.text} overflow-hidden shadow-sm relative slide-render-target transition-colors duration-300`}
+      style={readOnly ? style : { width: '100%', height: '100%', aspectRatio: '16/9' }}
+    >
+      <div className={tmpl.layout}>
+        {tmpl.fields.map((field) => {
+          const val = slide.content[field.key] || '';
+          
+          if (readOnly) {
+            return (
+               <div key={field.key} className={`${field.style} whitespace-pre-wrap`}>
+                 {val || <span className="opacity-0">Vacío</span>}
+               </div>
+            );
+          }
+          
+          if (field.type === 'textarea') {
+            return (
+              <textarea
+                key={field.key}
+                value={val}
+                onChange={(e) => onUpdate(slideIndex, field.key, e.target.value)}
+                placeholder={field.placeholder}
+                className={field.style}
+              />
+            );
+          }
+          return (
+            <input
+              key={field.key}
+              type="text"
+              value={val}
+              onChange={(e) => onUpdate(slideIndex, field.key, e.target.value)}
+              placeholder={field.placeholder}
+              className={field.style}
+            />
+          );
+        })}
+      </div>
+      
+      {/* Marca de agua sutil o número de página */}
+      <div className="absolute bottom-4 right-6 text-sm opacity-30 pointer-events-none">
+          ZenSlide • {slideIndex + 1}
+      </div>
+    </div>
+  );
+};
+
+// --- COMPONENTE PRINCIPAL ---
 export default function ZenSlide() {
-  // --- Estados ---
   const [slides, setSlides] = useState([
     { id: Date.now(), templateId: 'TITLE', content: { title: 'Bienvenidos a ZenSlide', subtitle: 'La forma minimalista de presentar' } }
   ]);
@@ -104,7 +168,6 @@ export default function ZenSlide() {
   const [exporting, setExporting] = useState(false);
   const [notification, setNotification] = useState(null);
 
-  // --- Efectos para cargar librerías ---
   useEffect(() => {
     const loadLibs = async () => {
       try {
@@ -119,30 +182,40 @@ export default function ZenSlide() {
   }, []);
 
   // --- Handlers ---
-
   const addSlide = (templateId) => {
-    const newSlide = {
-      id: Date.now(),
-      templateId,
-      content: {}
-    };
-    setSlides([...slides, newSlide]);
-    setActiveSlideIndex(slides.length);
+    const newSlide = { id: Date.now(), templateId, content: {} };
+    const newSlides = [...slides, newSlide];
+    setSlides(newSlides);
+    setActiveSlideIndex(newSlides.length - 1);
     setShowTemplateModal(false);
   };
 
-  const updateSlideContent = (key, value) => {
-    const newSlides = [...slides];
-    newSlides[activeSlideIndex].content[key] = value;
-    setSlides(newSlides);
+  const updateSlideContent = (index, key, value) => {
+    setSlides(prevSlides => {
+        const newSlides = [...prevSlides];
+        // Creamos una copia superficial del slide para asegurar inmutabilidad
+        newSlides[index] = {
+            ...newSlides[index],
+            content: {
+                ...newSlides[index].content,
+                [key]: value
+            }
+        };
+        return newSlides;
+    });
   };
 
   const deleteSlide = (e) => {
-    e.stopPropagation();
+    e.stopPropagation(); // IMPORTANTE: Detiene que el clic llegue al slide
     if (slides.length === 1) return showNotification("Mínimo una diapositiva.");
+    
     const newSlides = slides.filter((_, i) => i !== activeSlideIndex);
     setSlides(newSlides);
-    setActiveSlideIndex(Math.max(0, activeSlideIndex - 1));
+    
+    // Si borramos la última, vamos a la anterior. Si no, nos quedamos en el mismo índice (que ahora será el siguiente slide)
+    if (activeSlideIndex >= newSlides.length) {
+        setActiveSlideIndex(newSlides.length - 1);
+    }
   };
 
   const moveSlide = (direction) => {
@@ -164,27 +237,25 @@ export default function ZenSlide() {
   };
 
   // --- Lógica de Exportación ---
-
   const exportPDF = async () => {
-    if (typeof window.jspdf === 'undefined') return showNotification("Librerías cargando... intenta de nuevo.");
+    if (typeof window.jspdf === 'undefined') return showNotification("Librerías cargando...");
     setExporting(true);
     showNotification("Generando PDF...");
     
     try {
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({ orientation: 'landscape', unit: 'px', format: [1280, 720] });
-      
       const slideElements = document.querySelectorAll('.slide-render-target');
       
       for (let i = 0; i < slideElements.length; i++) {
         if (i > 0) doc.addPage([1280, 720], 'landscape');
         const canvas = await window.html2canvas(slideElements[i], { scale: 2, useCORS: true });
-        const imgData = canvas.toDataURL('image/jpeg', 1.0);
+        const imgData = canvas.toDataURL('image/jpeg', 0.9);
         doc.addImage(imgData, 'JPEG', 0, 0, 1280, 720);
       }
       
-      doc.save('ZenSlide-Presentation.pdf');
-      showNotification("PDF descargado con éxito.");
+      doc.save('ZenSlide.pdf');
+      showNotification("PDF descargado.");
     } catch (err) {
       console.error(err);
       showNotification("Error al generar PDF.");
@@ -194,7 +265,7 @@ export default function ZenSlide() {
   };
 
   const exportPPTX = () => {
-    if (typeof window.PptxGenJS === 'undefined') return showNotification("Librerías cargando... intenta de nuevo.");
+    if (typeof window.PptxGenJS === 'undefined') return showNotification("Librerías cargando...");
     setExporting(true);
     showNotification("Generando PowerPoint...");
 
@@ -204,10 +275,8 @@ export default function ZenSlide() {
 
       slides.forEach(slide => {
         const slideAdd = pptx.addSlide();
-        // Fondo (simple)
         slideAdd.background = { color: currentTheme.bg.includes('slate-900') ? '1e293b' : 'ffffff' };
         const color = currentTheme.text.includes('white') ? 'ffffff' : '000000';
-
         const { content, templateId } = slide;
 
         if (templateId === 'TITLE') {
@@ -228,8 +297,8 @@ export default function ZenSlide() {
         }
       });
 
-      pptx.writeFile({ fileName: 'ZenSlide-Presentation.pptx' });
-      showNotification("PPTX generado con éxito.");
+      pptx.writeFile({ fileName: 'ZenSlide.pptx' });
+      showNotification("PPTX generado.");
     } catch (err) {
       console.error(err);
       showNotification("Error al generar PPTX.");
@@ -238,67 +307,7 @@ export default function ZenSlide() {
     }
   };
 
-  // --- Renderizado de Componentes ---
-
-  const SlideRenderer = ({ slide, readOnly = false, scale = 1 }) => {
-    const tmpl = TEMPLATES[slide.templateId];
-    
-    // Si estamos exportando a PDF, necesitamos capturar el DOM, así que forzamos un contenedor limpio
-    // Si estamos en vista previa (sidebar), hacemos scale
-    const style = {
-      transform: `scale(${scale})`,
-      transformOrigin: 'top left',
-      width: '1280px',
-      height: '720px',
-    };
-
-    return (
-      <div 
-        className={`${currentTheme.bg} ${currentTheme.text} overflow-hidden shadow-sm relative slide-render-target transition-colors duration-300`}
-        style={readOnly ? style : { width: '100%', height: '100%', aspectRatio: '16/9' }}
-      >
-        <div className={tmpl.layout}>
-          {tmpl.fields.map((field) => {
-            const val = slide.content[field.key] || '';
-            if (readOnly) {
-              return (
-                 <div key={field.key} className={`${field.style} whitespace-pre-wrap`}>
-                   {val || <span className="opacity-0">Vacío</span>}
-                 </div>
-              );
-            }
-            if (field.type === 'textarea') {
-              return (
-                <textarea
-                  key={field.key}
-                  value={val}
-                  onChange={(e) => updateSlideContent(field.key, e.target.value)}
-                  placeholder={field.placeholder}
-                  className={field.style}
-                />
-              );
-            }
-            return (
-              <input
-                key={field.key}
-                type="text"
-                value={val}
-                onChange={(e) => updateSlideContent(field.key, e.target.value)}
-                placeholder={field.placeholder}
-                className={field.style}
-              />
-            );
-          })}
-        </div>
-        {/* Marca de agua sutil o número de página */}
-        <div className="absolute bottom-4 right-6 text-sm opacity-30 pointer-events-none">
-            ZenSlide • {slides.indexOf(slide) + 1}
-        </div>
-      </div>
-    );
-  };
-
-  // --- Interfaz Principal ---
+  // --- Renderizado UI ---
 
   if (isPresenting) {
     return (
@@ -309,20 +318,17 @@ export default function ZenSlide() {
              if(e.key === 'ArrowLeft') setActiveSlideIndex(Math.max(0, activeSlideIndex - 1));
              if(e.key === 'Escape') setIsPresenting(false);
            }}
-           onClick={() => setActiveSlideIndex(Math.min(slides.length - 1, activeSlideIndex + 1))}
            autoFocus
       >
         <div className="w-full h-full max-w-7xl max-h-[90vh] aspect-video">
-           <SlideRenderer slide={slides[activeSlideIndex]} readOnly scale={1} />
+           <SlideRenderer slide={slides[activeSlideIndex]} theme={currentTheme} readOnly scale={1} slideIndex={activeSlideIndex} />
         </div>
-        
         <button 
-          onClick={(e) => { e.stopPropagation(); setIsPresenting(false); }}
+          onClick={() => setIsPresenting(false)}
           className="absolute top-4 right-4 text-white/50 hover:text-white"
         >
           <X size={32} />
         </button>
-
         <div className="absolute bottom-4 left-0 right-0 text-center text-white/30 pointer-events-none">
             {activeSlideIndex + 1} / {slides.length}
         </div>
@@ -333,7 +339,7 @@ export default function ZenSlide() {
   return (
     <div className="h-screen w-full flex flex-col bg-gray-50 overflow-hidden font-sans text-slate-800">
       
-      {/* --- Top Bar --- */}
+      {/* Top Bar */}
       <div className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 lg:px-6 shadow-sm z-20">
         <div className="flex items-center gap-3">
           <div className="bg-indigo-600 text-white p-1.5 rounded-lg">
@@ -360,26 +366,27 @@ export default function ZenSlide() {
            
            <div className="h-6 w-px bg-gray-300 mx-2"></div>
 
+           {/* SOLUCIÓN AL MENÚ EXPORTAR: Cambiado mt-2 por padding top (pt-2) para evitar huecos donde se pierde el hover */}
            <div className="relative group">
               <button className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm font-medium transition-colors">
                 <Download size={16} /> <span className="hidden sm:inline">Exportar</span>
               </button>
-              <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden hidden group-hover:block animate-in fade-in zoom-in-95 duration-200">
+              <div className="absolute right-0 top-full pt-2 w-48 hidden group-hover:block hover:block z-50">
+                <div className="bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                   <button onClick={exportPDF} disabled={exporting} className="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-center gap-3 text-sm text-gray-700">
                     <FileText size={16} className="text-red-500" /> Exportar a PDF
                   </button>
                   <button onClick={exportPPTX} disabled={exporting} className="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-center gap-3 text-sm text-gray-700">
                     <Presentation size={16} className="text-orange-500" /> Exportar a PPTX
                   </button>
+                </div>
               </div>
            </div>
         </div>
       </div>
 
-      {/* --- Main Area --- */}
       <div className="flex-1 flex overflow-hidden">
-        
-        {/* --- Sidebar (Slides List) --- */}
+        {/* Sidebar */}
         <div className="w-24 lg:w-64 bg-white border-r border-gray-200 flex flex-col z-10">
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {slides.map((slide, idx) => (
@@ -389,9 +396,8 @@ export default function ZenSlide() {
                 className={`group relative transition-all duration-200 cursor-pointer ${activeSlideIndex === idx ? 'ring-2 ring-indigo-600 ring-offset-2' : 'hover:ring-2 hover:ring-gray-200 hover:ring-offset-1'}`}
               >
                 <div className="aspect-video bg-white border border-gray-200 rounded-lg overflow-hidden relative shadow-sm">
-                   {/* Mini Preview Hack: We use CSS scale to fit the renderer in a tiny box */}
                    <div className="w-[1280px] h-[720px] absolute top-0 left-0 origin-top-left scale-[0.05] lg:scale-[0.16] bg-white pointer-events-none select-none">
-                     <SlideRenderer slide={slide} readOnly />
+                     <SlideRenderer slide={slide} theme={currentTheme} readOnly slideIndex={idx} />
                    </div>
                 </div>
                 <div className="absolute top-1 left-2 text-[10px] font-bold text-gray-400 bg-white/80 px-1 rounded backdrop-blur-sm">
@@ -412,33 +418,39 @@ export default function ZenSlide() {
           </div>
         </div>
 
-        {/* --- Editor Canvas --- */}
+        {/* Editor Canvas */}
         <div className="flex-1 bg-gray-100 flex flex-col relative overflow-hidden">
           
-          {/* Toolbar flotante de diapositiva */}
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-sm border border-gray-200/50 flex items-center gap-4 z-20 opacity-0 hover:opacity-100 transition-opacity duration-300">
-             <button onClick={() => moveSlide(-1)} className="p-1 hover:bg-gray-100 rounded-full text-gray-500" title="Mover arriba">
-               <ArrowUp size={16} />
+          {/* Toolbar flotante de diapositiva MEJORADO */}
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-md border border-gray-200/50 flex items-center gap-4 z-20 opacity-0 hover:opacity-100 transition-opacity duration-300">
+             <button onClick={() => moveSlide(-1)} className="p-2 hover:bg-gray-100 rounded-full text-gray-600 hover:text-indigo-600 transition-colors" title="Mover arriba">
+               <ArrowUp size={18} />
              </button>
-             <button onClick={() => moveSlide(1)} className="p-1 hover:bg-gray-100 rounded-full text-gray-500" title="Mover abajo">
-               <ArrowDown size={16} />
+             <button onClick={() => moveSlide(1)} className="p-2 hover:bg-gray-100 rounded-full text-gray-600 hover:text-indigo-600 transition-colors" title="Mover abajo">
+               <ArrowDown size={18} />
              </button>
-             <div className="w-px h-4 bg-gray-300"></div>
-             <button onClick={(e) => deleteSlide(e)} className="p-1 hover:bg-red-50 rounded-full text-red-500" title="Eliminar">
-               <Trash2 size={16} />
+             <div className="w-px h-5 bg-gray-300"></div>
+             <button onClick={(e) => deleteSlide(e)} className="p-2 hover:bg-red-50 rounded-full text-red-500 transition-colors" title="Eliminar diapositiva">
+               <Trash2 size={18} />
              </button>
           </div>
 
           <div className="flex-1 flex items-center justify-center p-4 lg:p-12 overflow-auto">
              <div className="w-full max-w-5xl aspect-video bg-white shadow-2xl rounded-sm overflow-hidden ring-1 ring-black/5 transition-all">
-                <SlideRenderer slide={slides[activeSlideIndex]} />
+                {/* Aquí renderizamos el componente extraído, pasando las funciones de update */}
+                <SlideRenderer 
+                    slide={slides[activeSlideIndex]} 
+                    theme={currentTheme}
+                    onUpdate={updateSlideContent}
+                    slideIndex={activeSlideIndex}
+                />
              </div>
           </div>
         </div>
 
       </div>
 
-      {/* --- Template Selection Modal --- */}
+      {/* Modal */}
       {showTemplateModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
@@ -466,7 +478,7 @@ export default function ZenSlide() {
         </div>
       )}
 
-      {/* --- Notification Toast --- */}
+      {/* Notificación */}
       {notification && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full shadow-lg z-50 text-sm font-medium animate-in slide-in-from-bottom-5 fade-in duration-300">
           {notification}
